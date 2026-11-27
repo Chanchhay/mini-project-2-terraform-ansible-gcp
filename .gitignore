@@ -1,0 +1,37 @@
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+
+# Keep Terraform provider dependency lock file
+!**/.terraform.lock.hcl
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.password
+*.secret
+*.token
+
+# SSH private keys
+id_rsa
+id_ed25519
+
+# Ansible temporary files
+*.retry
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

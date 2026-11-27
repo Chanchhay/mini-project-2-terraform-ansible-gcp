@@ -1,0 +1,102 @@
+
+---
+- name: Deploy SonarQube with PostgreSQL
+  hosts: sonarqube
+  become: true
+
+  vars:
+    sonarqube_dir: /opt/sonarqube
+
+  tasks:
+    - name: Create SonarQube directory
+      ansible.builtin.file:
+        path: "{{ sonarqube_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Configure Linux for Elasticsearch
+      ansible.posix.sysctl:
+        name: vm.max_map_count
+        value: "524288"
+        state: present
+        reload: true
+
+    - name: Verify database password is configured
+      ansible.builtin.assert:
+        that:
+          - vault_sonar_db_password is defined
+          - vault_sonar_db_password | length >= 16
+        fail_msg: "Configure the database password in Ansible Vault"
+        quiet: true
+      no_log: true
+
+    - name: Create SonarQube environment file
+      ansible.builtin.copy:
+        dest: "{{ sonarqube_dir }}/.env"
+        content: "SONAR_DB_PASSWORD={{ vault_sonar_db_password }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+    - name: Create Docker Compose configuration
+      ansible.builtin.copy:
+        dest: "{{ sonarqube_dir }}/compose.yml"
+        mode: "0644"
+        content: |
+          services:
+            db:
+              image: postgres:17
+              restart: unless-stopped
+              environment:
+                POSTGRES_USER: sonar
+                POSTGRES_PASSWORD: ${SONAR_DB_PASSWORD}
+                POSTGRES_DB: sonarqube
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U sonar -d sonarqube"]
+                interval: 10s
+                timeout: 5s
+                retries: 10
+
+            sonarqube:
+              image: sonarqube:community
+              restart: unless-stopped
+              depends_on:
+                db:
+                  condition: service_healthy
+              ports:
+                - "127.0.0.1:9000:9000"
+              environment:
+                SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonarqube
+                SONAR_JDBC_USERNAME: sonar
+                SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD}
+              volumes:
+                - sonar_data:/opt/sonarqube/data
+                - sonar_extensions:/opt/sonarqube/extensions
+
+          volumes:
+            postgres_data:
+            sonar_data:
+            sonar_extensions:
+
+    - name: Check Docker Compose configuration
+      ansible.builtin.command:
+        cmd: docker compose config --quiet
+        chdir: "{{ sonarqube_dir }}"
+      changed_when: false
+
+    - name: Start SonarQube
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ sonarqube_dir }}"
+      changed_when: true
+
+    - name: Write SonarQube database environment
+      ansible.builtin.copy:
+        dest: "{{ sonarqube_dir }}/.env"
+        content: "SONAR_DB_PASSWORD={{ vault_sonar_db_password }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true

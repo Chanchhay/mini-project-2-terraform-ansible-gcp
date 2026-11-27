@@ -1,0 +1,13 @@
+
+---
+- name: Authorize Jenkins SSH key on workers
+  hosts: sonarqube:nexus
+  become: true
+
+  tasks:
+    - name: Add Jenkins public key to authorized_keys
+      ansible.posix.authorized_key:
+        user: ubuntu
+        state: present
+        manage_dir: true
+        key: "{{ lookup('file', playbook_dir + '/../jenkins-workers.pub') }}"

@@ -1,0 +1,54 @@
+
+---
+- name: Deploy Jenkins using Docker Compose
+  hosts: jenkins
+  become: true
+
+  tasks:
+    - name: Create Jenkins project directory
+      ansible.builtin.file:
+        path: /opt/jenkins
+        state: directory
+        mode: "0755"
+
+    - name: Create Jenkins Docker Compose file
+      ansible.builtin.copy:
+        dest: /opt/jenkins/compose.yml
+        mode: "0644"
+        content: |
+          services:
+            jenkins:
+              image: jenkins/jenkins:lts-jdk21
+              container_name: jenkins
+              restart: unless-stopped
+              ports:
+                - "127.0.0.1:8080:8080"
+              volumes:
+                - jenkins_home:/var/jenkins_home
+
+          volumes:
+            jenkins_home:
+
+    - name: Start Jenkins container
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: /opt/jenkins
+      changed_when: true
+
+    - name: Wait for Jenkins HTTP response
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/login
+        status_code: [200, 403, 503]
+      register: jenkins_http
+      retries: 30
+      delay: 10
+      until: jenkins_http.status in [200, 403, 503]
+
+    - name: Verify Jenkins container
+      ansible.builtin.command: docker ps --filter name=jenkins
+      register: jenkins_status
+      changed_when: false
+
+    - name: Display Jenkins status
+      ansible.builtin.debug:
+        var: jenkins_status.stdout_lines

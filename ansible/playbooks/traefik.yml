@@ -1,0 +1,108 @@
+
+---
+- name: Deploy Traefik Reverse Proxy
+  hosts: jenkins:sonarqube:nexus
+  become: true
+
+  vars:
+    traefik_dir: /opt/traefik
+    backend_port: >-
+      {{
+        8080 if inventory_hostname in groups['jenkins']
+        else 9000 if inventory_hostname in groups['sonarqube']
+        else 8081
+      }}
+
+  tasks:
+    - name: Create Traefik directory
+      ansible.builtin.file:
+        path: "{{ traefik_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create Traefik static configuration
+      ansible.builtin.copy:
+        dest: "{{ traefik_dir }}/traefik.yml"
+        mode: "0644"
+        content: |
+          entryPoints:
+            web:
+              address: ":80"
+
+          providers:
+            file:
+              filename: /etc/traefik/dynamic.yml
+              watch: true
+
+          ping:
+            entryPoint: web
+
+          api:
+            dashboard: false
+
+          log:
+            level: INFO
+
+    - name: Create Traefik dynamic configuration
+      ansible.builtin.copy:
+        dest: "{{ traefik_dir }}/dynamic.yml"
+        mode: "0644"
+        content: |
+          http:
+            routers:
+              application:
+                rule: "PathPrefix(`/`)"
+                entryPoints:
+                  - web
+                service: backend
+
+            services:
+              backend:
+                loadBalancer:
+                  servers:
+                    - url: "http://127.0.0.1:{{ backend_port }}"
+
+    - name: Create Docker Compose file
+      ansible.builtin.copy:
+        dest: "{{ traefik_dir }}/compose.yml"
+        mode: "0644"
+        content: |
+          services:
+            traefik:
+              image: traefik:v3
+              container_name: traefik
+              restart: unless-stopped
+              network_mode: host
+              volumes:
+                - ./traefik.yml:/etc/traefik/traefik.yml:ro
+                - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+
+    - name: Validate Docker Compose
+      ansible.builtin.command:
+        cmd: docker compose config --quiet
+        chdir: "{{ traefik_dir }}"
+      changed_when: false
+
+    - name: Start Traefik
+      ansible.builtin.command:
+        cmd: docker compose up -d --force-recreate
+        chdir: "{{ traefik_dir }}"
+      changed_when: true
+
+    - name: Wait for Traefik health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1/ping
+        status_code: 200
+      register: traefik_health
+      until: traefik_health.status == 200
+      retries: 15
+      delay: 3
+
+    - name: Verify Traefik container
+      ansible.builtin.command: docker ps --filter name=traefik
+      register: traefik_status
+      changed_when: false
+
+    - name: Display Traefik status
+      ansible.builtin.debug:
+        var: traefik_status.stdout_lines
