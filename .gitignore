@@ -35,3 +35,8 @@ id_ed25519
 .vscode/
 .idea/
 .DS_Store
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
