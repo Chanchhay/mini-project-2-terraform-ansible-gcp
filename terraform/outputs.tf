@@ -47,3 +47,21 @@ output "https_listener_arn" {
   description = "ALB HTTPS Listener ARN"
   value       = aws_lb_listener.https.arn
 }
+
+output "elastic_ips" {
+  description = "Elastic IP addresses of all DevOps servers"
+
+  value = {
+    for name, eip in aws_eip.servers :
+    name => eip.public_ip
+  }
+}
+
+output "elastic_ip_allocation_ids" {
+  description = "Elastic IP allocation IDs"
+
+  value = {
+    for name, eip in aws_eip.servers :
+    name => eip.id
+  }
+}
